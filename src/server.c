@@ -15,6 +15,7 @@
 
 #define READ_BUFFER_LEN 1024
 #define URL_MAX_LEN 512+1
+#define WRITE_BUFFER_LEN 1024
 
 
 // TO-DO:
@@ -24,7 +25,16 @@
 
 
 void print_prompt();
+
 int recv_line(int sockfd, char* buffer, int maxlen);
+void recv_all(int sockfd);
+int send_buffer(int sockfd, const char* buffer, int buffer_len);
+int send_string(int sockfd, const char* str);
+
+void serve_static_file(int sockfd, const char* filepath);
+int parse_request(int sockfd, char* filepath, const char* root_path);
+
+int response_header(int sockfd, int code, const char* mime);
 
 int main(int argc, char const *argv[]) {
 
@@ -80,62 +90,11 @@ int main(int argc, char const *argv[]) {
             continue;
         }
 
-        // read and parse http header
-        char buffer[READ_BUFFER_LEN];
-        int buffer_len;
-        buffer_len = recv_line(new_sockfd, buffer, READ_BUFFER_LEN);
-
-
-        // while (buffer_len>0 && buffer[0]!='\n') {
-        //     printf("%d\n", buffer_len);
-        //     printf("%s\n", buffer);
-        //     buffer_len = recv_line(new_sockfd, buffer, READ_BUFFER_LEN);
-        // }
-
-        // parse method
-        int method_len;
-        for(method_len = 0;(method_len<buffer_len)&&(buffer[method_len]!=' ');
-                                                                 method_len++);
-        if (strncmp(buffer, METHOD_GET, method_len) != 0) {
-            // not implement
-            perror("ERROR not implement");
-        }
-
-        // parse url
-        char url[URL_MAX_LEN];
-        int url_len;
-        for(url_len=0; (method_len+url_len+1)<buffer_len; url_len++) {
-            char c = buffer[method_len+url_len+1];
-            // stop when meet ' ' or '?'
-            // since only server static file, ignore things after ?
-            if (c==' ' || c=='?') break;
-            url[url_len] = c;
-        }
-        url[url_len] = '\0';
-
-
-        // get file path
-        // root_path+url can be unsafe since there can be /../../
-        char filepath_unsafe[PATH_MAX];
-        snprintf(filepath_unsafe, sizeof(filepath_unsafe), "%s%s",
-                                            root_path, url);
-        if (url[url_len-1]=='/') {
-            // add index.html when the url is a directory
-            snprintf(filepath_unsafe, sizeof(filepath_unsafe), "%s%s%s",
-                                                root_path, url, DEFAULT_PAGE);
-        } else {
-            snprintf(filepath_unsafe, sizeof(filepath_unsafe), "%s%s",
-                                                root_path, url);
-        }
-
         char filepath[PATH_MAX];
-        realpath(filepath_unsafe, filepath);
-
-        if(strncmp(filepath, root_path, strlen(root_path))!=0) {
-            // file is outside root_path
-            perror("ERROR 403");
+        if(parse_request(new_sockfd, filepath, root_path)>0) {
+            // the returned filepath is legal
+            response_header(new_sockfd, 405, "text/html");
         }
-
 
 
         // char buf[1024];
@@ -152,15 +111,70 @@ int main(int argc, char const *argv[]) {
     return 0;
 }
 
+int response_header(int sockfd, int code, const char* mime) {
+    const char* code_desc = NULL;
+    switch (code) {
+        case 200:
+            code_desc = "200 OK";
+            break;
+        case 404:
+            code_desc = "404 Not Found";
+            break;
+        case 405:
+            code_desc = "405 Method Not Allowed";
+            break;
+    }
+
+    char buffer[WRITE_BUFFER_LEN];
+    snprintf(buffer, WRITE_BUFFER_LEN,
+        "HTTP/1.0 %s\r\nContent-Type: %s\r\n\r\n",
+        code_desc, mime);
+    if (send_string(sockfd, buffer)!=1) return -1;
+
+    // if the code is not 200, then send error page
+    if (code != 200) {
+        char buffer[WRITE_BUFFER_LEN];
+        snprintf(buffer, WRITE_BUFFER_LEN,
+            "<!DOCTYPE html><html><head><meta charset='UTF-8'>\
+            <title>Error</title></head><body><h1>%s</h1></body></html>",
+            code_desc);
+        if (send_string(sockfd, buffer)!=1) return -1;
+    }
+    return 0;
+}
+
+void serve_static_file(int sockfd, const char* filepath) {
+    // // R_OK for read-only
+    // if( access( fname, R_OK ) == -1 ) {
+    //     // file not exists
+    //
+    //     return;
+    // }
+
+}
+
+int send_string(int sockfd, const char* str) {
+    return send_buffer(sockfd, str, strlen(str));
+}
+
+int send_buffer(int sockfd, const char* buffer, int buffer_len) {
+    const char* p = buffer;
+    while (buffer_len>0) {
+        int n = send(sockfd, p, buffer_len, 0);
+        if (n<1) return n;
+        buffer_len -= n;
+        p += n;
+    }
+    return 1;
+}
+
 int recv_line(int sockfd, char* buffer, int maxlen) {
     int i = 0;
     while(i < (maxlen-1)) {
         char c;
         // read one char
         int n = recv(sockfd, &c, 1, 0);
-        if (n<=0) {
-            return n;
-        }
+        if (n<=0) return n;
 
         // skip '\r'
         if (c == '\r') continue;
@@ -171,11 +185,77 @@ int recv_line(int sockfd, char* buffer, int maxlen) {
         // stop
         if (c == '\n') break;
     }
-
     buffer[i] = '\0';
     return i;
 }
 
+void recv_all(int sockfd) {
+    char buffer[READ_BUFFER_LEN];
+    int buffer_len;
+
+    do {
+        buffer_len = recv_line(sockfd, buffer, READ_BUFFER_LEN);
+    } while(buffer_len>0 && buffer[0]!='\n');
+}
+
+int parse_request(int sockfd, char* filepath, const char* root_path) {
+    // read and parse http header
+    char buffer[READ_BUFFER_LEN];
+    int buffer_len;
+    buffer_len = recv_line(sockfd, buffer, READ_BUFFER_LEN);
+
+    // discard other parts of header
+    recv_all(sockfd);
+
+    // parse method
+    int method_len;
+    for(method_len = 0;(method_len<buffer_len)&&(buffer[method_len]!=' ');
+                                                             method_len++);
+    if (strncmp(buffer, METHOD_GET, method_len) != 0) {
+        // not implement
+        perror("ERROR not implement");
+        return -1;
+    }
+
+    // parse url
+    char url[URL_MAX_LEN];
+    int url_len;
+    for(url_len=0; (method_len+url_len+1)<buffer_len; url_len++) {
+        char c = buffer[method_len+url_len+1];
+        // stop when meet ' ' or '?'
+        // since only server static file, ignore things after ?
+        if (c==' ' || c=='?') break;
+        url[url_len] = c;
+    }
+    url[url_len] = '\0';
+
+
+    // get file path
+    // root_path+url can be unsafe since there can be /../../ (Directory
+    // traversal attack)
+    char filepath_unsafe[PATH_MAX];
+    snprintf(filepath_unsafe, sizeof(filepath_unsafe), "%s%s",
+                                        root_path, url);
+    if (url[url_len-1]=='/') {
+        // add index.html when the url is a directory
+        snprintf(filepath_unsafe, sizeof(filepath_unsafe), "%s%s%s",
+                                            root_path, url, DEFAULT_PAGE);
+    } else {
+        snprintf(filepath_unsafe, sizeof(filepath_unsafe), "%s%s",
+                                            root_path, url);
+    }
+
+    realpath(filepath_unsafe, filepath);
+
+    if ((strncmp(filepath, root_path, strlen(root_path))!=0)||
+        (strncmp(filepath, filepath_unsafe, strlen(filepath))!=0)) {
+        // there is something wrong with the path
+        // Directory traversal attack or path not exists
+        perror("ERROR 404");
+        return -1;
+    }
+    return 1;
+}
 
 void print_prompt() {
     printf("Usage:\t\tserver [port number] [path to web root]\n");
