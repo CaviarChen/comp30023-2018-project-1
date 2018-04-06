@@ -1,5 +1,5 @@
 CC=gcc
-CPPFLAGS=-Wall -g -O3 -std=gnu99
+CPPFLAGS=-Wall -g -O3 -std=gnu99 -Wno-unused-result
 
 
 SRC=src/server.o
