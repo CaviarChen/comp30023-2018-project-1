@@ -8,6 +8,9 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
+// debug mode
+#define DEBUG 1
+
 #define BACKLOG 10 // max connections in the queue
 
 #define METHOD_GET "GET"
@@ -16,11 +19,11 @@
 #define READ_BUFFER_LEN 1024
 #define URL_MAX_LEN 512+1
 #define WRITE_BUFFER_LEN 1024
+#define FILE_BUFFER_LEN 1024
 
 
 // TO-DO:
 // maximum url(method) len? is buffer enough?
-
 
 
 
@@ -31,10 +34,14 @@ void recv_all(int sockfd);
 int send_buffer(int sockfd, const char* buffer, int buffer_len);
 int send_string(int sockfd, const char* str);
 
-void serve_static_file(int sockfd, const char* filepath);
+int serve_static_file(int sockfd, const char* filepath);
 int parse_request(int sockfd, char* filepath, const char* root_path);
 
 int response_header(int sockfd, int code, const char* mime);
+const char* get_mime_by_exten(const char* extension);
+
+const char* get_file_extension(const char* filepath);
+
 
 int main(int argc, char const *argv[]) {
 
@@ -90,10 +97,15 @@ int main(int argc, char const *argv[]) {
             continue;
         }
 
+        #if DEBUG
+            printf("\n ---- \n");
+        #endif
+
         char filepath[PATH_MAX];
         if(parse_request(new_sockfd, filepath, root_path)>0) {
             // the returned filepath is legal
-            response_header(new_sockfd, 405, "text/html");
+            // response_header(new_sockfd, 405, get_mime_by_exten("html"));
+            serve_static_file(new_sockfd, filepath);
         }
 
 
@@ -112,6 +124,7 @@ int main(int argc, char const *argv[]) {
 }
 
 int response_header(int sockfd, int code, const char* mime) {
+
     const char* code_desc = NULL;
     switch (code) {
         case 200:
@@ -124,6 +137,10 @@ int response_header(int sockfd, int code, const char* mime) {
             code_desc = "405 Method Not Allowed";
             break;
     }
+
+    #if DEBUG
+        printf("%s\n", code_desc);
+    #endif
 
     char buffer[WRITE_BUFFER_LEN];
     snprintf(buffer, WRITE_BUFFER_LEN,
@@ -143,14 +160,31 @@ int response_header(int sockfd, int code, const char* mime) {
     return 0;
 }
 
-void serve_static_file(int sockfd, const char* filepath) {
-    // // R_OK for read-only
-    // if( access( fname, R_OK ) == -1 ) {
-    //     // file not exists
-    //
-    //     return;
-    // }
+int serve_static_file(int sockfd, const char* filepath) {
+    // R_OK for read-only
+    if( access(filepath, R_OK ) == -1 ) {
+        // file not exists
+        response_header(sockfd, 404, get_mime_by_exten("html"));
+        return -1;
+    }
 
+    response_header(sockfd, 200,
+                    get_mime_by_exten(get_file_extension(filepath)));
+
+    int n = 0;
+    char buffer[FILE_BUFFER_LEN];
+
+    FILE* file = fopen(filepath, "r");
+    if (file) {
+        while ((n = fread(buffer, sizeof(*buffer), sizeof(buffer), file)) > 0)
+            if (send_buffer(sockfd, buffer, n)<1) return -1;
+
+        if (ferror(file)) return -1;
+        fclose(file);
+        return 1;
+    }
+
+    return -1;
 }
 
 int send_string(int sockfd, const char* str) {
@@ -212,8 +246,8 @@ int parse_request(int sockfd, char* filepath, const char* root_path) {
     for(method_len = 0;(method_len<buffer_len)&&(buffer[method_len]!=' ');
                                                              method_len++);
     if (strncmp(buffer, METHOD_GET, method_len) != 0) {
-        // not implement
-        perror("ERROR not implement");
+        // method not allowed
+        response_header(sockfd, 405, get_mime_by_exten("html"));
         return -1;
     }
 
@@ -229,6 +263,9 @@ int parse_request(int sockfd, char* filepath, const char* root_path) {
     }
     url[url_len] = '\0';
 
+    #if DEBUG
+        printf("[%s] ", url);
+    #endif
 
     // get file path
     // root_path+url can be unsafe since there can be /../../ (Directory
@@ -251,10 +288,32 @@ int parse_request(int sockfd, char* filepath, const char* root_path) {
         (strncmp(filepath, filepath_unsafe, strlen(filepath))!=0)) {
         // there is something wrong with the path
         // Directory traversal attack or path not exists
-        perror("ERROR 404");
+        response_header(sockfd, 404, get_mime_by_exten("html"));
         return -1;
     }
     return 1;
+}
+
+const char* get_mime_by_exten(const char* extension) {
+    if (extension) {
+        // case insensitive
+        if (strcasecmp(extension, "html") == 0)
+            return "text/html";
+        if (strcasecmp(extension, "jpg") == 0)
+            return "image/jpeg";
+        if (strcasecmp(extension, "css") == 0)
+            return "text/css";
+        if (strcasecmp(extension, "js") == 0)
+            return "application/javascript";
+    }
+
+    // for unknown types
+    return "application/octet-stream";
+}
+
+const char* get_file_extension(const char* filepath) {
+    const char* p = strrchr(filepath, '.');
+    return (p)? p+1 : NULL;
 }
 
 void print_prompt() {
