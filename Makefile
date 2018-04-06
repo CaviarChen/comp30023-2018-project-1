@@ -1,5 +1,5 @@
 CC=gcc
-CPPFLAGS=-Wall -g -Werror -O3 -std=gnu99
+CPPFLAGS=-Wall -g -Werror -O3 -std=gnu99 -Werror=unused-result
 
 
 SRC=src/server.o
@@ -10,4 +10,3 @@ all: $(SRC) src/server.o
 
 clean:
 	rm -f $(TARGET) src/*.o
-
