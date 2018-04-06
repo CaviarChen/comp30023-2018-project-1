@@ -52,7 +52,7 @@ int main(int argc, char const *argv[]) {
         print_prompt();
     } else {
         port_no = atoi(argv[1]);
-        realpath(argv[2], root_path);
+        (void) realpath(argv[2], root_path);
     }
 
     // Create TCP socket
@@ -282,7 +282,7 @@ int parse_request(int sockfd, char* filepath, const char* root_path) {
                                             root_path, url);
     }
 
-    realpath(filepath_unsafe, filepath);
+    (void) realpath(filepath_unsafe, filepath);
 
     if ((strncmp(filepath, root_path, strlen(root_path))!=0)||
         (strncmp(filepath, filepath_unsafe, strlen(filepath))!=0)) {
