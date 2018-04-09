@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 
+#include "debug_setting.h"
+
 typedef void (*fun_ptr_t)(int worker_id, int arg);
 
 typedef struct task_s {
@@ -13,8 +15,8 @@ typedef struct task_s {
 typedef struct thread_pool_s {
     int thread_num;
     int task_num;
-    struct task_s *head;
-    struct task_s *tail;
+    task_t *head;
+    task_t *tail;
 
     pthread_mutex_t mutex;
     pthread_cond_t cond;
@@ -44,9 +46,36 @@ void* thread_pool_init(int thread_num) {
     }
 }
 
+void thread_pool_add_task(void* _tp, fun_ptr_t fun, int arg) {
+    thread_pool_t *tp = (thread_pool_t*) _tp;
+
+    task_t *t = malloc(sizeof(task_t));
+
+    t->arg = arg;
+    t->fun = fun;
+    t->next = NULL;
+
+    if (tp->task_num==0) {
+        tp->head = t;
+        tp->tail = t;
+    } else {
+        tp->tail->next = t;
+        tp->tail = t;
+    }
+}
+
+
 void* thread_run(void *param) {
     int worker_id = *((int *) i);
     free(param);
+
+    while(1) {
+
+
+
+
+    }
+
 
     return NULL
 }
