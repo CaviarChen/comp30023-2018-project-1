@@ -8,8 +8,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-// debug mode
-#define DEBUG 1
+#include "debug_setting.h"
 
 #define BACKLOG 10 // max connections in the queue
 
