@@ -8,7 +8,7 @@
 
 typedef struct task_s {
     fun_ptr_t fun;
-    int arg;
+    void* arg;
     struct task_s *next;
 } task_t;
 
@@ -54,7 +54,7 @@ void* thread_pool_init(int thread_num) {
     return tp;
 }
 
-void thread_pool_add_task(void* _tp, fun_ptr_t fun, int arg) {
+void thread_pool_add_task(void* _tp, fun_ptr_t fun, void* arg) {
     thread_pool_t *tp = (thread_pool_t*) _tp;
 
     task_t *t = malloc(sizeof(task_t));
