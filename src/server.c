@@ -9,8 +9,10 @@
 #include <unistd.h>
 
 #include "debug_setting.h"
+#include "thread_pool.h"
 
 #define BACKLOG 10 // max connections in the queue
+#define THREAD_NUM 10
 
 #define METHOD_GET "GET"
 #define DEFAULT_PAGE "index.html"
@@ -41,6 +43,7 @@ const char* get_mime_by_exten(const char* extension);
 
 const char* get_file_extension(const char* filepath);
 
+void thread_fun(int worker_id, int arg);
 
 int main(int argc, char const *argv[]) {
 
@@ -86,6 +89,9 @@ int main(int argc, char const *argv[]) {
     struct sockaddr_in cli_addr;
     socklen_t cli_addr_len = sizeof(cli_addr);
 
+    // thread_pool
+    void* tp = thread_pool_init(THREAD_NUM);
+
     // main loop
     while (1) {
         int new_sockfd = accept(sockfd, (struct sockaddr *) &cli_addr,
@@ -99,6 +105,8 @@ int main(int argc, char const *argv[]) {
         #if DEBUG
             printf("\n ---- \n");
         #endif
+
+        thread_pool_add_task(tp, &thread_fun, 4);
 
         char filepath[PATH_MAX];
         if(parse_request(new_sockfd, filepath, root_path)>0) {
@@ -313,6 +321,10 @@ const char* get_mime_by_exten(const char* extension) {
 const char* get_file_extension(const char* filepath) {
     const char* p = strrchr(filepath, '.');
     return (p)? p+1 : NULL;
+}
+
+void thread_fun(int worker_id, int arg) {
+    printf("[thread_fun] worker_id: %d  arg: %d\n", worker_id, arg);
 }
 
 void print_prompt() {

@@ -3,8 +3,8 @@
 #include <pthread.h>
 
 #include "debug_setting.h"
+#include "thread_pool.h"
 
-typedef void (*fun_ptr_t)(int worker_id, int arg);
 
 typedef struct task_s {
     fun_ptr_t fun;
@@ -64,6 +64,7 @@ void thread_pool_add_task(void* _tp, fun_ptr_t fun, int arg) {
     t->next = NULL;
 
     pthread_mutex_lock(&(tp->mutex));
+
     if (tp->task_num==0) {
         tp->head = t;
         tp->tail = t;
@@ -71,6 +72,8 @@ void thread_pool_add_task(void* _tp, fun_ptr_t fun, int arg) {
         tp->tail->next = t;
         tp->tail = t;
     }
+    tp->task_num += 1;
+
     pthread_mutex_unlock(&(tp->mutex));
     // notify thread
     pthread_cond_signal(&(tp->cond));
@@ -105,7 +108,7 @@ void* thread_run(void *param) {
         if (tp->task_num == 0) tp->tail = NULL;
 
         // unlock and start working
-        pthread_mutex_lock(&(tp->mutex));
+        pthread_mutex_unlock(&(tp->mutex));
 
         #if DEBUG
             printf("Thread[%d] got task.\n", worker_id);
