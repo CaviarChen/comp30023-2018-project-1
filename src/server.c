@@ -324,6 +324,10 @@ void thread_fun(int worker_id, void* arg) {
     char filepath[PATH_MAX];
     if(parse_request(new_sockfd, filepath, root_path, worker_id)>0) {
         serve_static_file(new_sockfd, filepath, worker_id);
+
+        #if DEBUG
+            printf("(worker:%d) [%s] finished\n",worker_id, filepath);
+        #endif
     }
     close(new_sockfd);
 }
