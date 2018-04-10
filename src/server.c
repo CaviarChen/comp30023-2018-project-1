@@ -22,10 +22,10 @@
 #define WRITE_BUFFER_LEN 1024
 #define FILE_BUFFER_LEN 1024
 
-
-// TO-DO:
-// maximum url(method) len? is buffer enough?
-
+typedef struct {
+    int sockfd;
+    const char* root_path;
+} thread_arg_t;
 
 
 void print_prompt();
@@ -35,15 +35,16 @@ void recv_all(int sockfd);
 int send_buffer(int sockfd, const char* buffer, int buffer_len);
 int send_string(int sockfd, const char* str);
 
-int serve_static_file(int sockfd, const char* filepath);
-int parse_request(int sockfd, char* filepath, const char* root_path);
+int serve_static_file(int sockfd, const char* filepath, int worker_id);
+int parse_request(int sockfd, char* filepath, const char* root_path,
+                                                        int worker_id);
 
-int response_header(int sockfd, int code, const char* mime);
+int response_header(int sockfd, const char* filepath, int code, int worker_id);
 const char* get_mime_by_exten(const char* extension);
 
 const char* get_file_extension(const char* filepath);
 
-void thread_fun(int worker_id, int arg);
+void thread_fun(int worker_id, void* arg);
 
 int main(int argc, char const *argv[]) {
 
@@ -102,27 +103,11 @@ int main(int argc, char const *argv[]) {
             continue;
         }
 
-        #if DEBUG
-            printf("\n ---- \n");
-        #endif
+        thread_arg_t *arg = malloc(sizeof(thread_arg_t));
+        arg->sockfd = new_sockfd;
+        arg->root_path = root_path;
 
-        thread_pool_add_task(tp, &thread_fun, 4);
-
-        char filepath[PATH_MAX];
-        if(parse_request(new_sockfd, filepath, root_path)>0) {
-            // the returned filepath is legal
-            // response_header(new_sockfd, 405, get_mime_by_exten("html"));
-            serve_static_file(new_sockfd, filepath);
-        }
-
-
-        // char buf[1024];
-        //
-        // sprintf(buf, "HTTP/1.0 404 NOT FOUND\r\n");
-        // send(new_sockfd, buf, strlen(buf), 0);
-
-        close(new_sockfd);
-
+        thread_pool_add_task(tp, &thread_fun, arg);
     }
 
 
@@ -130,23 +115,27 @@ int main(int argc, char const *argv[]) {
     return 0;
 }
 
-int response_header(int sockfd, int code, const char* mime) {
-
+int response_header(int sockfd, const char* filepath, int code,
+                                                    int worker_id) {
+    const char* mime = NULL;
     const char* code_desc = NULL;
     switch (code) {
         case 200:
             code_desc = "200 OK";
+            mime = get_file_extension(filepath);
             break;
         case 404:
             code_desc = "404 Not Found";
+            mime = get_file_extension("html");
             break;
         case 405:
             code_desc = "405 Method Not Allowed";
+            mime = get_file_extension("html");
             break;
     }
 
     #if DEBUG
-        printf("%s\n", code_desc);
+        printf("(worker:%d) [%s] %s\n",worker_id, filepath, code_desc);
     #endif
 
     char buffer[WRITE_BUFFER_LEN];
@@ -167,16 +156,15 @@ int response_header(int sockfd, int code, const char* mime) {
     return 0;
 }
 
-int serve_static_file(int sockfd, const char* filepath) {
+int serve_static_file(int sockfd, const char* filepath, int worker_id) {
     // R_OK for read-only
     if( access(filepath, R_OK ) == -1 ) {
         // file not exists
-        response_header(sockfd, 404, get_mime_by_exten("html"));
+        response_header(sockfd, filepath, 404, worker_id);
         return -1;
     }
 
-    response_header(sockfd, 200,
-                    get_mime_by_exten(get_file_extension(filepath)));
+    response_header(sockfd, filepath, 200, worker_id);
 
     int n = 0;
     char buffer[FILE_BUFFER_LEN];
@@ -239,7 +227,8 @@ void recv_all(int sockfd) {
     } while(buffer_len>0 && buffer[0]!='\n');
 }
 
-int parse_request(int sockfd, char* filepath, const char* root_path) {
+int parse_request(int sockfd, char* filepath, const char* root_path
+                                                    , int worker_id) {
     // read and parse http header
     char buffer[READ_BUFFER_LEN];
     int buffer_len;
@@ -254,7 +243,7 @@ int parse_request(int sockfd, char* filepath, const char* root_path) {
                                                              method_len++);
     if (strncmp(buffer, METHOD_GET, method_len) != 0) {
         // method not allowed
-        response_header(sockfd, 405, get_mime_by_exten("html"));
+        response_header(sockfd, filepath, 405, worker_id);
         return -1;
     }
 
@@ -271,7 +260,7 @@ int parse_request(int sockfd, char* filepath, const char* root_path) {
     url[url_len] = '\0';
 
     #if DEBUG
-        printf("[%s] ", url);
+        printf("(worker:%d) [%s] \n", worker_id, url);
     #endif
 
     // get file path
@@ -295,7 +284,7 @@ int parse_request(int sockfd, char* filepath, const char* root_path) {
         (strncmp(filepath, filepath_unsafe, strlen(filepath))!=0)) {
         // there is something wrong with the path
         // Directory traversal attack or path not exists
-        response_header(sockfd, 404, get_mime_by_exten("html"));
+        response_header(sockfd, filepath_unsafe, 404, worker_id);
         return -1;
     }
     return 1;
@@ -323,8 +312,20 @@ const char* get_file_extension(const char* filepath) {
     return (p)? p+1 : NULL;
 }
 
-void thread_fun(int worker_id, int arg) {
-    printf("[thread_fun] worker_id: %d  arg: %d\n", worker_id, arg);
+void thread_fun(int worker_id, void* arg) {
+
+    // get arguments
+    int new_sockfd = ((thread_arg_t *)arg)->sockfd;
+    const char * root_path = ((thread_arg_t *)arg)->root_path;
+
+    free(arg);
+    arg = NULL;
+
+    char filepath[PATH_MAX];
+    if(parse_request(new_sockfd, filepath, root_path, worker_id)>0) {
+        serve_static_file(new_sockfd, filepath, worker_id);
+    }
+    close(new_sockfd);
 }
 
 void print_prompt() {
