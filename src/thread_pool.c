@@ -94,8 +94,9 @@ void* thread_run(void *param) {
 
     while(1) {
         pthread_mutex_lock(&(tp->mutex));
-        // waiting
-        pthread_cond_wait(&(tp->cond), &(tp->mutex));
+        
+        // not task, waiting for signal
+        if (tp->task_num==0) pthread_cond_wait(&(tp->cond), &(tp->mutex));
 
         if(tp->task_num==0) {
             pthread_mutex_unlock(&(tp->mutex));
