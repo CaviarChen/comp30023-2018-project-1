@@ -123,15 +123,15 @@ int response_header(int sockfd, const char* filepath, int code,
     switch (code) {
         case 200:
             code_desc = "200 OK";
-            mime = get_file_extension(filepath);
+            mime = get_mime_by_exten(get_file_extension(filepath));
             break;
         case 404:
             code_desc = "404 Not Found";
-            mime = get_file_extension("html");
+            mime = get_mime_by_exten("html");
             break;
         case 405:
             code_desc = "405 Method Not Allowed";
-            mime = get_file_extension("html");
+            mime = get_mime_by_exten("html");
             break;
     }
 
