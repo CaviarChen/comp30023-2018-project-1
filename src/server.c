@@ -73,6 +73,9 @@ int main(int argc, char const *argv[]) {
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(port_no);
 
+    // prevent problem caused by SIGPIPE signal
+    signal(SIGPIPE, SIG_IGN);
+
     // bind
     if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
         close(sockfd);
@@ -109,8 +112,6 @@ int main(int argc, char const *argv[]) {
 
         thread_pool_add_task(tp, &thread_fun, arg);
     }
-
-
 
     return 0;
 }
@@ -171,8 +172,12 @@ int serve_static_file(int sockfd, const char* filepath, int worker_id) {
 
     FILE* file = fopen(filepath, "r");
     if (file) {
-        while ((n = fread(buffer, sizeof(*buffer), sizeof(buffer), file)) > 0)
-            if (send_buffer(sockfd, buffer, n)<1) return -1;
+        while ((n = fread(buffer, sizeof(*buffer), sizeof(buffer), file)) > 0) {
+            if (send_buffer(sockfd, buffer, n)<1) {
+                fclose(file);
+                return -1;
+            }
+        }
 
         if (ferror(file)) return -1;
         fclose(file);
@@ -323,10 +328,11 @@ void thread_fun(int worker_id, void* arg) {
 
     char filepath[PATH_MAX];
     if(parse_request(new_sockfd, filepath, root_path, worker_id)>0) {
-        serve_static_file(new_sockfd, filepath, worker_id);
+        int code = serve_static_file(new_sockfd, filepath, worker_id);
 
         #if DEBUG
-            printf("(worker:%d) [%s] finished\n",worker_id, filepath);
+            printf("(worker:%d) [%s] finished [code:%d]\n",worker_id,
+                                                        filepath, code);
         #endif
     }
     close(new_sockfd);
