@@ -17,6 +17,9 @@
 
 #define METHOD_GET "GET"
 #define DEFAULT_PAGE "index.html"
+#define HTTP_HEADER "HTTP/1.0 %s\r\nContent-Type: %s\r\n\r\n"
+#define ERROR_PAGE "<!DOCTYPE html><html><head><meta charset='UTF-8'>\
+                    <title>Error</title></head><body><h1>%s</h1></body></html>"
 
 #define READ_BUFFER_LEN 1024
 #define URL_MAX_LEN 512+1
@@ -46,6 +49,9 @@ const char* get_mime_by_exten(const char* extension);
 const char* get_file_extension(const char* filepath);
 
 void thread_fun(int worker_id, void* arg);
+
+
+
 
 int main(int argc, char const *argv[]) {
 
@@ -141,18 +147,13 @@ int response_header(int sockfd, const char* filepath, int code,
     #endif
 
     char buffer[WRITE_BUFFER_LEN];
-    snprintf(buffer, WRITE_BUFFER_LEN,
-        "HTTP/1.0 %s\r\nContent-Type: %s\r\n\r\n",
-        code_desc, mime);
+    snprintf(buffer, WRITE_BUFFER_LEN, HTTP_HEADER, code_desc, mime);
     if (send_string(sockfd, buffer)!=1) return -1;
 
     // if the code is not 200, then send error page
     if (code != 200) {
         char buffer[WRITE_BUFFER_LEN];
-        snprintf(buffer, WRITE_BUFFER_LEN,
-            "<!DOCTYPE html><html><head><meta charset='UTF-8'>\
-            <title>Error</title></head><body><h1>%s</h1></body></html>",
-            code_desc);
+        snprintf(buffer, WRITE_BUFFER_LEN, ERROR_PAGE, code_desc);
         if (send_string(sockfd, buffer)!=1) return -1;
     }
     return 0;
