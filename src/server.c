@@ -1,3 +1,9 @@
+/* Simple HTTP1.0 Server
+ * Name: Zijun Chen
+ * StudentID: 813190
+ * LoginID: zijunc3
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,41 +20,78 @@
 #include "socket_helper.h"
 
 #define BACKLOG 10 // max connections in the queue
-#define THREAD_NUM 10
+#define THREAD_NUM 10 // num of workers
 
+// string constant
 #define METHOD_GET "GET"
 #define DEFAULT_PAGE "index.html"
 #define HTTP_HEADER "HTTP/1.0 %s\r\nContent-Type: %s\r\n\r\n"
 #define ERROR_PAGE "<!DOCTYPE html><html><head><meta charset='UTF-8'>\
                     <title>Error</title></head><body><h1>%s</h1></body></html>"
 
+// buffer size
+#define URL_MAX_LEN 1024+1
+#define WRITE_BUFFER_LEN 4096
+#define FILE_BUFFER_LEN 4096
 
-#define URL_MAX_LEN 512+1
-#define WRITE_BUFFER_LEN 1024
-#define FILE_BUFFER_LEN 1024
-
+// struct for passing worker thread arguments
 typedef struct {
     int sockfd;
     const char* root_path;
 } thread_arg_t;
 
-
+// function prototype
+// print prompt for input
 void print_prompt();
+
+// start server
 void start_server(int port_no, const char* root_path);
 
+// thread function for handle request
+void thread_fun(int worker_id, void* arg);
+
+// handle request
 int serve_static_file(int sockfd, const char* filepath, int worker_id);
 int parse_request(int sockfd, char* filepath, const char* root_path,
                                                         int worker_id);
-
 int response_header(int sockfd, const char* filepath, int code, int worker_id);
 
+// helper
 const char* get_mime_by_exten(const char* extension);
-
 const char* get_file_extension(const char* filepath);
 
-void thread_fun(int worker_id, void* arg);
 
+// function code
+// -------------------------------
+// main
+int main(int argc, char const *argv[]) {
+
+    int port_no = 0;
+    char root_path[PATH_MAX];
+
+    if (argc < 3) {
+        print_prompt();
+    } else {
+        port_no = atoi(argv[1]);
+        (void) realpath(argv[2], root_path);
+    }
+
+    // got arguments, start running
+    start_server(port_no, root_path);
+
+    return 0;
+}
+
+void print_prompt() {
+    printf("Usage:\t\tserver [port number] [path to web root]\n");
+
+    exit(EXIT_FAILURE);
+}
+
+// start server
 void start_server(int port_no, const char* root_path) {
+    // prevent problem caused by SIGPIPE signal
+    signal(SIGPIPE, SIG_IGN);
 
     // Create TCP socket
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -65,9 +108,6 @@ void start_server(int port_no, const char* root_path) {
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(port_no);
 
-    // prevent problem caused by SIGPIPE signal
-    signal(SIGPIPE, SIG_IGN);
-
     // bind
     if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
         close(sockfd);
@@ -75,6 +115,7 @@ void start_server(int port_no, const char* root_path) {
         exit(EXIT_FAILURE);
     }
 
+    // listen
     if (listen(sockfd, BACKLOG) == -1) {
         close(sockfd);
         perror("ERROR listen");
@@ -83,6 +124,7 @@ void start_server(int port_no, const char* root_path) {
 
     printf("Serving HTTP on 0.0.0.0 port %d ...\n", port_no);
 
+    // struct for client info
     struct sockaddr_in cli_addr;
     socklen_t cli_addr_len = sizeof(cli_addr);
 
@@ -103,63 +145,34 @@ void start_server(int port_no, const char* root_path) {
         arg->sockfd = new_sockfd;
         arg->root_path = root_path;
 
+        // put job in to thread pool task list
         thread_pool_add_task(tp, &thread_fun, arg);
     }
 }
 
-int main(int argc, char const *argv[]) {
+// function for worker thread
+void thread_fun(int worker_id, void* arg) {
 
-    int port_no = 0;
-    char root_path[PATH_MAX];
+    // get arguments
+    int new_sockfd = ((thread_arg_t *)arg)->sockfd;
+    const char * root_path = ((thread_arg_t *)arg)->root_path;
 
-    if (argc < 3) {
-        print_prompt();
-    } else {
-        port_no = atoi(argv[1]);
-        (void) realpath(argv[2], root_path);
+    free(arg);
+    arg = NULL;
+
+    char filepath[PATH_MAX];
+    if(parse_request(new_sockfd, filepath, root_path, worker_id)>0) {
+        int code = serve_static_file(new_sockfd, filepath, worker_id);
+
+        #if DEBUG
+            printf("(worker:%d) [%s] finished [code:%d]\n",worker_id,
+                                                        filepath, code);
+        #endif
     }
-
-    start_server(port_no, root_path);
-
-    return 0;
+    close(new_sockfd);
 }
 
-int response_header(int sockfd, const char* filepath, int code,
-                                                    int worker_id) {
-    const char* mime = NULL;
-    const char* code_desc = NULL;
-    switch (code) {
-        case 200:
-            code_desc = "200 OK";
-            mime = get_mime_by_exten(get_file_extension(filepath));
-            break;
-        case 404:
-            code_desc = "404 Not Found";
-            mime = get_mime_by_exten("html");
-            break;
-        case 405:
-            code_desc = "405 Method Not Allowed";
-            mime = get_mime_by_exten("html");
-            break;
-    }
-
-    #if DEBUG
-        printf("(worker:%d) [%s] %s\n",worker_id, filepath, code_desc);
-    #endif
-
-    char buffer[WRITE_BUFFER_LEN];
-    snprintf(buffer, WRITE_BUFFER_LEN, HTTP_HEADER, code_desc, mime);
-    if (send_string(sockfd, buffer)!=1) return -1;
-
-    // if the code is not 200, then send error page
-    if (code != 200) {
-        char buffer[WRITE_BUFFER_LEN];
-        snprintf(buffer, WRITE_BUFFER_LEN, ERROR_PAGE, code_desc);
-        if (send_string(sockfd, buffer)!=1) return -1;
-    }
-    return 0;
-}
-
+// serve static file based on request file path
 int serve_static_file(int sockfd, const char* filepath, int worker_id) {
     // R_OK for read-only
     if( access(filepath, R_OK ) == -1 ) {
@@ -170,11 +183,13 @@ int serve_static_file(int sockfd, const char* filepath, int worker_id) {
 
     response_header(sockfd, filepath, 200, worker_id);
 
+    // sending file content
     int n = 0;
     char buffer[FILE_BUFFER_LEN];
 
     FILE* file = fopen(filepath, "r");
     if (file) {
+        // handle up to FILE_BUFFER_LEN each time
         while ((n = fread(buffer, sizeof(*buffer), sizeof(buffer), file)) > 0) {
             if (send_buffer(sockfd, buffer, n)<1) {
                 fclose(file);
@@ -190,8 +205,9 @@ int serve_static_file(int sockfd, const char* filepath, int worker_id) {
     return -1;
 }
 
-int parse_request(int sockfd, char* filepath, const char* root_path
-                                                    , int worker_id) {
+// parse request header
+int parse_request(int sockfd, char* filepath, const char* root_path,
+                                                        int worker_id) {
     // read and parse http header
     char buffer[READ_BUFFER_LEN];
     int buffer_len;
@@ -205,7 +221,7 @@ int parse_request(int sockfd, char* filepath, const char* root_path
     for(method_len = 0;(method_len<buffer_len)&&(buffer[method_len]!=' ');
                                                              method_len++);
     if (strncmp(buffer, METHOD_GET, method_len) != 0) {
-        // method not allowed
+        // method other than GET, not allowed
         response_header(sockfd, filepath, 405, worker_id);
         return -1;
     }
@@ -216,7 +232,7 @@ int parse_request(int sockfd, char* filepath, const char* root_path
     for(url_len=0; (method_len+url_len+1)<buffer_len; url_len++) {
         char c = buffer[method_len+url_len+1];
         // stop when meet ' ' or '?'
-        // since only server static file, ignore things after ?
+        // since only server static file, ignore things after '?'
         if (c==' ' || c=='?') break;
         url[url_len] = c;
     }
@@ -245,7 +261,7 @@ int parse_request(int sockfd, char* filepath, const char* root_path
 
     if ((strncmp(filepath, root_path, strlen(root_path))!=0)||
         (strncmp(filepath, filepath_unsafe, strlen(filepath))!=0)) {
-        // there is something wrong with the path
+        // path changed after realpath, so there must be
         // Directory traversal attack or path not exists
         response_header(sockfd, filepath_unsafe, 404, worker_id);
         return -1;
@@ -253,6 +269,46 @@ int parse_request(int sockfd, char* filepath, const char* root_path
     return 1;
 }
 
+// send http response header
+int response_header(int sockfd, const char* filepath, int code,
+                                                    int worker_id) {
+    const char* mime = NULL;
+    const char* code_desc = NULL;
+    // get description and MIME according to response code
+    switch (code) {
+        case 200:
+            code_desc = "200 OK";
+            mime = get_mime_by_exten(get_file_extension(filepath));
+            break;
+        case 404:
+            code_desc = "404 Not Found";
+            mime = get_mime_by_exten("html");
+            break;
+        case 405:
+            code_desc = "405 Method Not Allowed";
+            mime = get_mime_by_exten("html");
+            break;
+    }
+
+    #if DEBUG
+        printf("(worker:%d) [%s] %s\n",worker_id, filepath, code_desc);
+    #endif
+
+    // build and send http header
+    char buffer[WRITE_BUFFER_LEN];
+    snprintf(buffer, WRITE_BUFFER_LEN, HTTP_HEADER, code_desc, mime);
+    if (send_string(sockfd, buffer)!=1) return -1;
+
+    // if the code is not 200, then send a error page
+    if (code != 200) {
+        char buffer[WRITE_BUFFER_LEN];
+        snprintf(buffer, WRITE_BUFFER_LEN, ERROR_PAGE, code_desc);
+        if (send_string(sockfd, buffer)!=1) return -1;
+    }
+    return 0;
+}
+
+// return MIME given file extension
 const char* get_mime_by_exten(const char* extension) {
     if (extension) {
         // case insensitive
@@ -270,35 +326,8 @@ const char* get_mime_by_exten(const char* extension) {
     return "application/octet-stream";
 }
 
+// return file extension or NULL given file path
 const char* get_file_extension(const char* filepath) {
     const char* p = strrchr(filepath, '.');
     return (p)? p+1 : NULL;
-}
-
-void thread_fun(int worker_id, void* arg) {
-
-    // get arguments
-    int new_sockfd = ((thread_arg_t *)arg)->sockfd;
-    const char * root_path = ((thread_arg_t *)arg)->root_path;
-
-    free(arg);
-    arg = NULL;
-
-    char filepath[PATH_MAX];
-    if(parse_request(new_sockfd, filepath, root_path, worker_id)>0) {
-        int code = serve_static_file(new_sockfd, filepath, worker_id);
-
-        #if DEBUG
-            printf("(worker:%d) [%s] finished [code:%d]\n",worker_id,
-                                                        filepath, code);
-        #endif
-    }
-    close(new_sockfd);
-}
-
-void print_prompt() {
-    printf("Usage:\t\tserver [port number] [path to web root]\n");
-
-    exit(EXIT_FAILURE);
-
 }

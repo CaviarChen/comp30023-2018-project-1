@@ -1,3 +1,9 @@
+/* Simple HTTP1.0 Server (Thread Pool)
+ * Name: Zijun Chen
+ * StudentID: 813190
+ * LoginID: zijunc3
+ */
+
 #ifndef THREAD_POOL_H
 #define THREAD_POOL_H
 
