@@ -20,9 +20,9 @@ Project 1 for Computer System (COMP30023)
     ./server 8080 ./test/www/
 
 ### Debug Mode
-1. Change
+1. Change  
         #define DEBUG 0
-    to
+    to  
         #define DEBUG 1
     from file "debug_setting.h".
 
