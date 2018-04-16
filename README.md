@@ -34,4 +34,4 @@ Project 1 for Computer System (COMP30023)
 Other than the project requirement, I implemented:  
 * Thread pool.
 * Prevent directory traversal attack.
-* Handle when client closes the connection unexpectedly.
+* Handle problems caused by the client closes the connection unexpectedly.
