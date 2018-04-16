@@ -162,7 +162,12 @@ void thread_fun(int worker_id, void* arg) {
 
     char filepath[PATH_MAX];
     if(parse_request(new_sockfd, filepath, root_path, worker_id)>0) {
-        int code = serve_static_file(new_sockfd, filepath, worker_id);
+
+        // only record the return value when in debug mode
+        #if DEBUG
+            int code =
+        #endif
+        serve_static_file(new_sockfd, filepath, worker_id);
 
         #if DEBUG
             printf("(worker:%d) [%s] finished [code:%d]\n",worker_id,
