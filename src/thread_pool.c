@@ -1,4 +1,4 @@
-/* Simple HTTP1.0 Server
+/* Simple HTTP1.0 Server (Thread Pool)
  * Name: Zijun Chen
  * StudentID: 813190
  * LoginID: zijunc3
