@@ -6,7 +6,7 @@ Project 1 for Computer System (COMP30023)
 **Login Name** zijunc3  
 ***  
 
-### Installationunexpectedly.
+### Installation
 
     git clone git@gitlab.eng.unimelb.edu.au:zijunc3/comp30023-2018-project-1.git
     cd comp30023-2018-project-1/
@@ -34,4 +34,4 @@ Project 1 for Computer System (COMP30023)
 Other than the project requirement, I implemented:  
 * Thread pool.
 * Prevent directory traversal attack.
-* Handle when client close the connection unexpectedly.
+* Handle when client closes the connection unexpectedly.
