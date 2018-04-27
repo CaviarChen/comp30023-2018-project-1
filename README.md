@@ -1,5 +1,6 @@
 # Simple HTTP 1.0 Server
-Project 1 for Computer System (COMP30023)
+Project 1 for Computer System (COMP30023).
+A simple static file server with minimum support of HTTP 1.0 written in C.
 
 **Name** Zijun Chen  
 **Student ID** 813190  
@@ -8,7 +9,7 @@ Project 1 for Computer System (COMP30023)
 
 ### Installation
 
-    git clone git@gitlab.eng.unimelb.edu.au:zijunc3/comp30023-2018-project-1.git
+    git clone git@github.com:CaviarChen/comp30023-2018-project-1.git
     cd comp30023-2018-project-1/
     make
 
@@ -21,8 +22,10 @@ Project 1 for Computer System (COMP30023)
 
 ### Debug Mode
 1. Change  
-        #define DEBUG 0
+
+        #define DEBUG 0    
     to  
+    
         #define DEBUG 1
     from file "debug_setting.h".
 
